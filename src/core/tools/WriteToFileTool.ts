@@ -174,6 +174,7 @@ export class WriteToFileTool extends BaseTool<"write_to_file"> {
 			}
 
 			task.didEditFile = true
+			task.didWriteToFileSucceed = true
 
 			const message = await task.diffViewProvider.pushToolWriteResult(task, task.cwd, !fileExists)
 

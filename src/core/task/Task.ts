@@ -305,6 +305,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	diffViewProvider: DiffViewProvider
 	diffStrategy?: DiffStrategy
 	didEditFile: boolean = false
+	/** Set by WriteToFileTool only when the write actually completed (after approval and persist). Used by hooks to run post-hook only on success. */
+	didWriteToFileSucceed: boolean = false
 
 	// LLM Messages & Chat Messages
 	apiConversationHistory: ApiMessage[] = []

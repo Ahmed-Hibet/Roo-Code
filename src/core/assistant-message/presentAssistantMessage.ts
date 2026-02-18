@@ -40,6 +40,11 @@ import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 
 import { formatResponse } from "../prompts/responses"
 import { sanitizeToolUseId } from "../../utils/tool-id"
+import {
+	runPreHookOnly,
+	runPostHookOnly,
+	isMutatingTool,
+} from "../../hooks"
 
 /**
  * Processes and presents assistant message content to the user interface.
@@ -675,15 +680,43 @@ export async function presentAssistantMessage(cline: Task) {
 				}
 			}
 
+			// Hook engine (Intent-Code Traceability): Pre-Hook for mutating tools
+			if (!block.partial && isMutatingTool(block.name)) {
+				const preResult = await runPreHookOnly(cline, block)
+				if (!preResult.allow) {
+					pushToolResult(
+						formatResponse.toolError(
+							typeof preResult.errorContent === "string"
+								? preResult.errorContent
+								: "Pre-Hook blocked this action.",
+						),
+					)
+					break
+				}
+			}
+
 			switch (block.name) {
-				case "write_to_file":
+				case "write_to_file": {
+					cline.didWriteToFileSucceed = false
 					await checkpointSaveAndMark(cline)
 					await writeToFileTool.handle(cline, block as ToolUse<"write_to_file">, {
 						askApproval,
 						handleError,
 						pushToolResult,
 					})
+					if (cline.didWriteToFileSucceed) {
+						// Path order must match pre-hook and tool: nativeArgs first, then params
+						const writtenPath =
+							(block.nativeArgs as { path?: string } | undefined)?.path ?? block.params?.path
+						await runPostHookOnly({
+							task: cline,
+							toolName: "write_to_file",
+							params: (block.nativeArgs ?? block.params) as Record<string, unknown>,
+							writtenPath,
+						})
+					}
 					break
+				}
 				case "update_todo_list":
 					await updateTodoListTool.handle(cline, block as ToolUse<"update_todo_list">, {
 						askApproval,
