@@ -9,8 +9,22 @@ import * as fs from "fs/promises"
 
 import type { ToolUse } from "../shared/tools"
 import type { Task } from "../core/task/Task"
-import type { PreHookResult, ActiveIntentEntry, IntentContext, RecentTraceSummary } from "./types"
-import { MUTATING_TOOL_NAMES, ORCHESTRATION_DIR, ACTIVE_INTENTS_FILE, AGENT_TRACE_FILE } from "./constants"
+import type {
+	PreHookResult,
+	PreHookOptions,
+	PreHookErrorCode,
+	ActiveIntentEntry,
+	IntentContext,
+	RecentTraceSummary,
+} from "./types"
+import {
+	MUTATING_TOOL_NAMES,
+	DESTRUCTIVE_TOOL_NAMES,
+	ORCHESTRATION_DIR,
+	ACTIVE_INTENTS_FILE,
+	AGENT_TRACE_FILE,
+	INTENT_IGNORE_FILE,
+} from "./constants"
 
 /** In-memory store of active intent per task (set when select_active_intent is called). */
 const activeIntentByTaskId = new Map<string, string>()
@@ -39,12 +53,123 @@ export function clearActiveIntentForTask(taskId: string): void {
 }
 
 /**
+ * Phase 2: Build a standardized JSON tool-error for autonomous recovery.
+ * The LLM can parse status/code/message/suggestion and self-correct without crashing.
+ */
+export function buildStandardizedToolError(
+	code: PreHookErrorCode,
+	message: string,
+	suggestion?: string,
+): string {
+	return JSON.stringify({
+		status: "error",
+		code,
+		message,
+		...(suggestion && { suggestion }),
+	})
+}
+
+/** Tools that accept a single file path for scope checks (path or file_path param). */
+const FILE_PATH_TOOL_NAMES = new Set([
+	"write_to_file",
+	"apply_diff",
+	"edit",
+	"search_and_replace",
+	"search_replace",
+	"edit_file",
+])
+
+/** apply_patch uses patch content; paths are extracted from markers (Add/Delete/Update/Move to). */
+const PATCH_PATH_MARKERS = [
+	"*** Add File: ",
+	"*** Delete File: ",
+	"*** Update File: ",
+	"*** Move to: ",
+] as const
+
+/**
+ * Extract file paths from apply_patch content for scope enforcement.
+ * Matches the format used by the apply_patch tool (see apply-patch/parser.ts).
+ */
+function getPathsFromApplyPatchBlock(block: ToolUse): string[] {
+	const args = (block as { nativeArgs?: Record<string, unknown> }).nativeArgs ?? block.params ?? {}
+	const patch = args.patch as string | undefined
+	if (typeof patch !== "string" || !patch.trim()) return []
+	const paths: string[] = []
+	for (const line of patch.split("\n")) {
+		for (const marker of PATCH_PATH_MARKERS) {
+			if (line.startsWith(marker)) {
+				const p = line.slice(marker.length).trim()
+				if (p) paths.push(p)
+				break
+			}
+		}
+	}
+	return paths
+}
+
+/**
+ * Get the file path from a tool block for scope enforcement.
+ * Order: nativeArgs first, then params; param name is "path" or "file_path" by tool.
+ */
+function getPathForScopeCheck(block: ToolUse): string | undefined {
+	const args = (block as { nativeArgs?: Record<string, unknown> }).nativeArgs ?? block.params ?? {}
+	// write_to_file, apply_diff use "path"; edit, search_replace, edit_file use "file_path"
+	const pathArg = (args.path ?? args.file_path) as string | undefined
+	return typeof pathArg === "string" ? pathArg : undefined
+}
+
+/**
+ * Check that a single path is within the intent's owned_scope.
+ * Returns the first path that is out of scope, or undefined if all are in scope.
+ */
+function firstPathOutOfScope(
+	paths: string[],
+	ownedScope: string[],
+): string | undefined {
+	for (const filePath of paths) {
+		const normalized = path.normalize(filePath).replace(/\\/g, "/")
+		const inScope = ownedScope.some((scope) => matchScope(scope, normalized))
+		if (!inScope) return filePath
+	}
+	return undefined
+}
+
+/**
+ * Load intent IDs from .intentignore (one per line; # comments allowed).
+ * Tries .orchestration/.intentignore first, then workspace root .intentignore.
+ */
+async function loadIntentIgnore(cwd: string, orchestrationPath: string): Promise<Set<string>> {
+	const candidates = [
+		path.join(orchestrationPath, INTENT_IGNORE_FILE),
+		path.join(cwd, INTENT_IGNORE_FILE),
+	]
+	for (const filePath of candidates) {
+		try {
+			const content = await fs.readFile(filePath, "utf-8")
+			const ids = new Set<string>()
+			for (const line of content.split("\n")) {
+				const trimmed = line.replace(/#.*$/, "").trim()
+				if (trimmed) ids.add(trimmed)
+			}
+			return ids
+		} catch {
+			continue
+		}
+	}
+	return new Set()
+}
+
+/**
  * Run the Pre-Hook for a tool call.
  * Returns { allow: true } to proceed, or { allow: false, errorContent } to block and return error to the LLM.
+ * Phase 2: Accepts optional PreHookOptions for UI-blocking authorization (.intentignore).
+ * All errors use standardized JSON (status, code, message, suggestion) for autonomous recovery.
  */
 export async function runPreHook(
 	task: Task,
 	block: ToolUse,
+	options?: PreHookOptions,
 ): Promise<PreHookResult> {
 	const toolName = block.name as string
 
@@ -73,33 +198,83 @@ export async function runPreHook(
 	if (!activeIntentId) {
 		return {
 			allow: false,
-			errorContent: [
-				'You must cite a valid active Intent ID before performing this action.',
-				'Call select_active_intent(intent_id) first to load context and then retry.',
-			].join(' '),
+			errorContent: buildStandardizedToolError(
+				"intent_required",
+				"You must cite a valid active Intent ID before performing this action.",
+				"Call select_active_intent(intent_id) first to load context and then retry.",
+			),
 		}
 	}
 
-	// Scope enforcement for write_to_file (and other file-writing tools)
-	// Path resolution order must match post-hook and tool execution: nativeArgs first, then params.
-	if (toolName === "write_to_file") {
-		const filePath = (block as { nativeArgs?: { path?: string } }).nativeArgs?.path ?? block.params?.path
-		if (filePath) {
-			const intent = await loadIntentFromYaml(path.join(orchestrationPath, ACTIVE_INTENTS_FILE), activeIntentId)
-			if (!intent) {
-				return {
-					allow: false,
-					errorContent: `Active intent "${activeIntentId}" no longer exists in .orchestration/active_intents.yaml (file may have been modified or corrupted). Call select_active_intent with a valid intent_id from the current specification.`,
-				}
+	// Scope enforcement for all file-writing tools (Phase 2: full rubric)
+	const needsScopeCheck = FILE_PATH_TOOL_NAMES.has(toolName) || toolName === "apply_patch"
+	if (needsScopeCheck) {
+		const intent = await loadIntentFromYaml(
+			path.join(orchestrationPath, ACTIVE_INTENTS_FILE),
+			activeIntentId,
+		)
+		if (!intent) {
+			return {
+				allow: false,
+				errorContent: buildStandardizedToolError(
+					"intent_not_found",
+					`Active intent "${activeIntentId}" no longer exists in .orchestration/active_intents.yaml.`,
+					"Call select_active_intent with a valid intent_id from the current specification.",
+				),
 			}
-			if (intent.owned_scope && intent.owned_scope.length > 0) {
-				const normalizedPath = path.normalize(filePath).replace(/\\/g, "/")
-				const inScope = intent.owned_scope.some((scope) => matchScope(scope, normalizedPath))
-				if (!inScope) {
+		}
+		if (FILE_PATH_TOOL_NAMES.has(toolName)) {
+			const filePath = getPathForScopeCheck(block)
+			if (filePath && intent.owned_scope && intent.owned_scope.length > 0) {
+				const outOfScope = firstPathOutOfScope([filePath], intent.owned_scope)
+				if (outOfScope !== undefined) {
 					return {
 						allow: false,
-						errorContent: `Scope Violation: ${activeIntentId} is not authorized to edit ${filePath}. Request scope expansion.`,
+						errorContent: buildStandardizedToolError(
+							"scope_violation",
+							`${activeIntentId} is not authorized to edit ${outOfScope}.`,
+							"Request scope expansion or use a file within the intent's owned_scope.",
+						),
 					}
+				}
+			}
+		} else if (toolName === "apply_patch") {
+			// apply_patch is in DESTRUCTIVE_TOOL_NAMES but paths come from patch content
+			const paths = getPathsFromApplyPatchBlock(block)
+			if (paths.length > 0 && intent.owned_scope && intent.owned_scope.length > 0) {
+				const outOfScope = firstPathOutOfScope(paths, intent.owned_scope)
+				if (outOfScope !== undefined) {
+					return {
+						allow: false,
+						errorContent: buildStandardizedToolError(
+							"scope_violation",
+							`${activeIntentId} is not authorized to edit ${outOfScope} (via apply_patch).`,
+							"Request scope expansion or use files within the intent's owned_scope.",
+						),
+					}
+				}
+			}
+		}
+	}
+
+	// Phase 2: UI-blocking authorization when intent is in .intentignore
+	if (DESTRUCTIVE_TOOL_NAMES.has(toolName as import("@roo-code/types").ToolName)) {
+		const intentIgnore = await loadIntentIgnore(cwd, orchestrationPath)
+		if (intentIgnore.has(activeIntentId) && options?.requestDestructiveApproval) {
+			const approved = await options.requestDestructiveApproval({
+				task,
+				block,
+				intentId: activeIntentId,
+				toolName,
+			})
+			if (!approved) {
+				return {
+					allow: false,
+					errorContent: buildStandardizedToolError(
+						"user_rejected",
+						"The user rejected this destructive action for the selected intent.",
+						"Explain the change to the user or choose a different approach.",
+					),
 				}
 			}
 		}

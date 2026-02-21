@@ -1,0 +1,6 @@
+# .intentignore (Phase 2: UI-blocking authorization)
+# Copy to .intentignore and add intent IDs that require Approve/Reject before destructive actions.
+# One intent ID per line; # comments allowed.
+#
+# INT-001
+# INT-002

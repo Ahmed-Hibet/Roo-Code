@@ -1,4 +1,5 @@
 import { serializeError } from "serialize-error"
+import * as vscode from "vscode"
 import { Anthropic } from "@anthropic-ai/sdk"
 
 import type { ToolName, ClineAsk, ToolProgressStatus } from "@roo-code/types"
@@ -689,17 +690,31 @@ export async function presentAssistantMessage(cline: Task) {
 				}
 			}
 
-			// Hook engine (Intent-Code Traceability): Pre-Hook for mutating tools
+			// Hook engine (Intent-Code Traceability): Pre-Hook for mutating tools (Phase 2: UI-blocking approval)
 			if (!block.partial && isMutatingTool(block.name)) {
-				const preResult = await runPreHookOnly(cline, block)
-				if (!preResult.allow) {
-					pushToolResult(
-						formatResponse.toolError(
-							typeof preResult.errorContent === "string"
-								? preResult.errorContent
-								: "Pre-Hook blocked this action.",
-						),
+				const requestDestructiveApproval = async (opts: {
+					task: Task
+					block: ToolUse
+					intentId: string
+					toolName: string
+				}) => {
+					const choice = await vscode.window.showWarningMessage(
+						`Intent "${opts.intentId}" is in .intentignore. Approve this ${opts.toolName} action?`,
+						"Approve",
+						"Reject",
 					)
+					return choice === "Approve"
+				}
+				const preResult = await runPreHookOnly(cline, block, {
+					requestDestructiveApproval,
+				})
+				if (!preResult.allow) {
+					// Phase 2: Pre-Hook returns standardized JSON for autonomous recovery; pass through as-is
+					const err =
+						typeof preResult.errorContent === "string"
+							? preResult.errorContent
+							: formatResponse.toolError("Pre-Hook blocked this action.")
+					pushToolResult(err)
 					break
 				}
 			}

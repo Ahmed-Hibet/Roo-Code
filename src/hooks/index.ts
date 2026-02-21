@@ -24,10 +24,20 @@ export {
 	isMutatingTool,
 } from "./engine"
 
-export { ORCHESTRATION_DIR, ACTIVE_INTENTS_FILE, AGENT_TRACE_FILE, INTENT_MAP_FILE, MUTATING_TOOL_NAMES } from "./constants"
+export {
+	ORCHESTRATION_DIR,
+	ACTIVE_INTENTS_FILE,
+	AGENT_TRACE_FILE,
+	INTENT_MAP_FILE,
+	INTENT_IGNORE_FILE,
+	MUTATING_TOOL_NAMES,
+	DESTRUCTIVE_TOOL_NAMES,
+} from "./constants"
 
 export type {
 	PreHookResult,
+	PreHookOptions,
+	PreHookErrorCode,
 	PostHookContext,
 	AgentTraceRecord,
 	ActiveIntentEntry,

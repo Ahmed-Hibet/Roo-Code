@@ -1,5 +1,6 @@
 /**
  * Hook system constants (TRP1 Intent-Code Traceability).
+ * Phase 2: Command classification (Safe vs Destructive) and .intentignore.
  */
 
 import type { ToolName } from "@roo-code/types"
@@ -17,6 +18,13 @@ export const AGENT_TRACE_FILE = "agent_trace.jsonl"
 export const INTENT_MAP_FILE = "intent_map.md"
 
 /**
+ * Filename for intent governance: list of intent IDs that require UI approval
+ * before destructive actions (one intent ID per line; # comments allowed).
+ * Located in .orchestration/.intentignore or workspace root.
+ */
+export const INTENT_IGNORE_FILE = ".intentignore"
+
+/**
  * Tool names that mutate the workspace or system (write, delete, execute).
  * Pre-Hook must enforce intent and scope for these; Post-Hook may append trace.
  */
@@ -31,6 +39,23 @@ export const MUTATING_TOOL_NAMES: Set<ToolName> = new Set([
 	"execute_command",
 	"update_todo_list",
 	"new_task",
+	"generate_image",
+] as ToolName[])
+
+/**
+ * Phase 2: Destructive tools (write, delete, execute). These are the subset of
+ * mutating tools that modify workspace or run shell; used for UI-blocking
+ * authorization when .intentignore lists an intent (Approve/Reject).
+ */
+export const DESTRUCTIVE_TOOL_NAMES: Set<ToolName> = new Set([
+	"write_to_file",
+	"apply_diff",
+	"edit",
+	"search_and_replace",
+	"search_replace",
+	"edit_file",
+	"apply_patch",
+	"execute_command",
 	"generate_image",
 ] as ToolName[])
 
