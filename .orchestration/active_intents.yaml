@@ -1,6 +1,11 @@
 # Intent Specification (TRP1 Intent-Code Traceability)
 # Machine-managed; updated via Pre-Hooks (agent picks task) and Post-Hooks (task complete).
-# Copy to workspace root or use as reference for .orchestration/active_intents.yaml.
+#
+# Lifecycle: status transitions NOT_STARTED → IN_PROGRESS → DONE.
+# - NOT_STARTED: intent not yet selected for work.
+# - IN_PROGRESS: agent has called select_active_intent; work under this intent in progress.
+# - DONE: milestone or acceptance criteria met; intent can be archived or refined.
+# Pre-Hook/Post-Hook or manual updates should keep status in sync with actual work.
 
 active_intents:
 - id: "INT-001"

@@ -219,6 +219,24 @@ export async function checkGitInstalled(): Promise<boolean> {
 }
 
 /**
+ * Returns the content of a file at HEAD for the given path, or null if not in repo or file not at HEAD.
+ * Used by the mutation classifier to compute diff-based heuristics (refactor vs feature).
+ */
+export async function getFileContentAtHead(cwd: string, relativePath: string): Promise<string | null> {
+	try {
+		const isRepo = await checkGitRepo(cwd)
+		if (!isRepo) return null
+		// Use forward slashes for git on all platforms; quote for paths with spaces
+		const gitPath = relativePath.replace(/\\/g, "/")
+		const ref = `HEAD:${gitPath}`
+		const { stdout } = await execAsync(ref.includes(" ") ? `git show "${ref}"` : `git show ${ref}`, { cwd })
+		return stdout ?? null
+	} catch {
+		return null
+	}
+}
+
+/**
  * Returns the current Git HEAD revision (SHA) for the given cwd, or undefined if not a repo.
  * Used by the agent trace (Intent-Code Traceability) for vcs.revision_id.
  */

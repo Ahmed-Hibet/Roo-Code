@@ -167,7 +167,7 @@ Phase 3 implements semantic tracking in the ledger so the system can distinguish
 | Requirement | Implementation |
 |-------------|----------------|
 | **Schema modification** | `write_to_file` tool schema includes optional `mutation_class: "AST_REFACTOR" \| "INTENT_EVOLUTION"` (`src/core/prompts/tools/native-tools/write_to_file.ts`). Intent ID comes from `select_active_intent` (Phase 1). |
-| **Semantic classification** | Agent declares `mutation_class` per write; Post-Hook records it in each `agent_trace.jsonl` entry. `AST_REFACTOR` = syntax/structure change, same intent; `INTENT_EVOLUTION` = new feature or behavior. |
+| **Semantic classification** | Agent may declare `mutation_class` per write; when omitted, Post-Hook computes it via **diff heuristics** in `src/hooks/classifyMutation.ts` (previous content from `git show HEAD:path`). Explicit refactor vs feature logic: AST_REFACTOR = formatting, renames, same line-set; INTENT_EVOLUTION = new file, new declarations, substantial line additions. |
 | **Spatial hashing** | `computeContentHash(content)` in `src/hooks/preHook.ts` produces `sha256:` + hex digest. Post-Hook already computed content hash per file; same utility used for optimistic locking (Phase 4). |
 | **Trace serialization** | Post-Hook (`src/hooks/postHook.ts`) builds each record with `mutation_class`, `content_hash` in ranges, and `related: [{ type: "specification", value: intent_id }]`; appends one JSON line to `agent_trace.jsonl`. |
 
@@ -175,7 +175,7 @@ Phase 3 implements semantic tracking in the ledger so the system can distinguish
 
 Each line in `.orchestration/agent_trace.jsonl` now includes:
 
-- `mutation_class`: `"AST_REFACTOR"` or `"INTENT_EVOLUTION"` (default `INTENT_EVOLUTION` if omitted).
+- `mutation_class`: `"AST_REFACTOR"` or `"INTENT_EVOLUTION"` (agent-supplied, or computed by `classifyMutation()` when omitted; see refactor vs feature rules in `src/hooks/classifyMutation.ts`).
 - All prior fields: `id`, `timestamp`, `vcs.revision_id`, `files[].relative_path`, `files[].conversations[].ranges[].content_hash`, `files[].conversations[].related[]`.
 
 ### 8.3 Evaluation Rubric Alignment (Phase 3 – Full Score)

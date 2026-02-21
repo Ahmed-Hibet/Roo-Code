@@ -4,5 +4,5 @@ Maps high-level business intents to physical files and AST nodes. Incrementally 
 
 | Intent ID   | Name                         | Key paths / scope              |
 |------------|------------------------------|--------------------------------|
-| INT-001    | JWT Authentication Migration | src/auth/**, src/middleware/jwt.ts |
+| INT-001    | JWT Authentication Migration | src/auth/**, src/middleware/jwt.ts, src/auth/middleware.ts |
 | INT-002    | Build Weather API            | src/api/weather/**, src/services/weather*.ts |

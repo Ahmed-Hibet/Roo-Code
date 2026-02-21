@@ -13,7 +13,8 @@ import type { AgentTraceRecord, MutationClass } from "./types"
 import { ORCHESTRATION_DIR, AGENT_TRACE_FILE } from "./constants"
 import { getActiveIntentForTask } from "./preHook"
 import { updateIntentMapForEvolution } from "./intentMap"
-import { getCurrentRevisionId } from "../utils/git"
+import { getCurrentRevisionId, getFileContentAtHead } from "../utils/git"
+import { classifyMutation } from "./classifyMutation"
 
 /**
  * Run the Post-Hook after a mutating tool (e.g. write_to_file) has completed.
@@ -45,8 +46,9 @@ export async function runPostHook(context: PostHookContext): Promise<void> {
 		let contentHash: string
 		let startLine = 1
 		let endLine = 1
+		let content: string
 		try {
-			const content = await fs.readFile(absolutePath, "utf-8")
+			content = await fs.readFile(absolutePath, "utf-8")
 			contentHash = "sha256:" + createHash("sha256").update(content).digest("hex")
 			const lines = content.split("\n")
 			// Trailing newline produces an extra empty segment; don't count it as a line
@@ -56,10 +58,16 @@ export async function runPostHook(context: PostHookContext): Promise<void> {
 					: lines.length
 		} catch {
 			contentHash = "sha256:(unable-to-read)"
+			content = ""
 		}
 
 		const revisionId = await getCurrentRevisionId(cwd)
-		const mutationClass = (params.mutation_class as MutationClass | undefined) ?? "INTENT_EVOLUTION"
+		// Use agent-supplied mutation_class when present; otherwise compute via diff heuristics (refactor vs feature).
+		let mutationClass: MutationClass | undefined = params.mutation_class as MutationClass | undefined
+		if (!mutationClass) {
+			const previousContent = await getFileContentAtHead(cwd, relPath)
+			mutationClass = classifyMutation(previousContent, content, relPath)
+		}
 		const record: AgentTraceRecord = {
 			id: uuidv7(),
 			timestamp: new Date().toISOString(),
