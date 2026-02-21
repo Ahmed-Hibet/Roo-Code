@@ -1,0 +1,29 @@
+# Intent Specification (TRP1 Intent-Code Traceability)
+# Machine-managed; updated via Pre-Hooks (agent picks task) and Post-Hooks (task complete).
+# Copy to workspace root or use as reference for .orchestration/active_intents.yaml.
+
+active_intents:
+- id: "INT-001"
+  name: "JWT Authentication Migration"
+  status: "IN_PROGRESS"
+  owned_scope:
+  - "src/auth/**"
+  - "src/middleware/jwt.ts"
+  constraints:
+  - "Must not use external auth providers"
+  - "Must maintain backward compatibility with Basic Auth"
+  acceptance_criteria:
+  - "Unit tests in tests/auth/ pass"
+
+- id: "INT-002"
+  name: "Build Weather API"
+  status: "NOT_STARTED"
+  owned_scope:
+  - "src/api/weather/**"
+  - "src/services/weather*.ts"
+  constraints:
+  - "Use Open-Meteo or similar free API"
+  - "Cache responses for 5 minutes"
+  acceptance_criteria:
+  - "GET /api/weather returns JSON with temp and conditions"
+  - "Integration test in tests/api/weather passes"

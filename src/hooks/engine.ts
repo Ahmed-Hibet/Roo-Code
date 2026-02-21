@@ -16,6 +16,7 @@ export {
 	getActiveIntentForTask,
 	clearActiveIntentForTask,
 	loadIntentContext,
+	loadRecentTraceEntriesForIntent,
 	buildIntentContextXml,
 } from "./preHook"
 

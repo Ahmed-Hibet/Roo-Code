@@ -9,8 +9,8 @@ import * as fs from "fs/promises"
 
 import type { ToolUse } from "../shared/tools"
 import type { Task } from "../core/task/Task"
-import type { PreHookResult, ActiveIntentEntry, IntentContext } from "./types"
-import { MUTATING_TOOL_NAMES, ORCHESTRATION_DIR, ACTIVE_INTENTS_FILE } from "./constants"
+import type { PreHookResult, ActiveIntentEntry, IntentContext, RecentTraceSummary } from "./types"
+import { MUTATING_TOOL_NAMES, ORCHESTRATION_DIR, ACTIVE_INTENTS_FILE, AGENT_TRACE_FILE } from "./constants"
 
 /** In-memory store of active intent per task (set when select_active_intent is called). */
 const activeIntentByTaskId = new Map<string, string>()
@@ -155,10 +155,60 @@ export async function loadIntentContext(
 }
 
 /**
- * Build the <intent_context> XML block returned as the tool result for select_active_intent.
- * Strict type-safe propagation: IntentContext -> string for the LLM.
+ * Load recent agent trace entries that reference the given intent_id (Phase 1 Context Loader).
+ * Reads agent_trace.jsonl and returns up to `limit` most recent entries with matching related intent.
  */
-export function buildIntentContextXml(context: IntentContext): string {
+export async function loadRecentTraceEntriesForIntent(
+	cwd: string,
+	intentId: string,
+	limit: number = 5,
+): Promise<RecentTraceSummary[]> {
+	const tracePath = path.join(cwd, ORCHESTRATION_DIR, AGENT_TRACE_FILE)
+	let content: string
+	try {
+		content = await fs.readFile(tracePath, "utf-8")
+	} catch {
+		return []
+	}
+	const lines = content.split("\n").filter((l) => l.trim())
+	const summaries: RecentTraceSummary[] = []
+	for (let i = lines.length - 1; i >= 0 && summaries.length < limit; i--) {
+		try {
+			const record = JSON.parse(lines[i]) as {
+				timestamp?: string
+				files?: Array<{
+					relative_path?: string
+					conversations?: Array<{ related?: Array<{ value?: string }>; ranges?: Array<{ content_hash?: string }> }>
+				}>
+			}
+			const relatedMatch = record.files?.some((f) =>
+				f.conversations?.some((c) =>
+					c.related?.some((r) => r.value === intentId),
+				),
+			)
+			if (!relatedMatch) continue
+			const file = record.files?.[0]
+			const relPath = file?.relative_path
+			const hash = file?.conversations?.[0]?.ranges?.[0]?.content_hash
+			const timestamp = record.timestamp
+			if (relPath && hash && timestamp) {
+				summaries.push({ relative_path: relPath, content_hash: hash, timestamp })
+			}
+		} catch {
+			// Skip malformed lines
+		}
+	}
+	return summaries
+}
+
+/**
+ * Build the <intent_context> XML block returned as the tool result for select_active_intent.
+ * Optionally includes <recent_trace> when recentTrace is provided (Phase 1 consolidated context).
+ */
+export function buildIntentContextXml(
+	context: IntentContext,
+	recentTrace?: RecentTraceSummary[],
+): string {
 	const lines: string[] = [
 		"<intent_context>",
 		`<intent_id>${escapeXml(context.id)}</intent_id>`,
@@ -178,6 +228,15 @@ export function buildIntentContextXml(context: IntentContext): string {
 		lines.push("<acceptance_criteria>")
 		for (const a of context.acceptance_criteria) lines.push(`  <criterion>${escapeXml(a)}</criterion>`)
 		lines.push("</acceptance_criteria>")
+	}
+	if (recentTrace && recentTrace.length > 0) {
+		lines.push("<recent_trace>")
+		for (const t of recentTrace) {
+			lines.push(
+				`  <entry path="${escapeXml(t.relative_path)}" content_hash="${escapeXml(t.content_hash)}" timestamp="${escapeXml(t.timestamp)}" />`,
+			)
+		}
+		lines.push("</recent_trace>")
 	}
 	lines.push("</intent_context>")
 	return lines.join("\n")
@@ -221,7 +280,7 @@ function parseActiveIntentsYaml(content: string): ActiveIntentEntry[] {
 			listKey = "acceptance_criteria"
 			current.acceptance_criteria = []
 		} else if (listKey && current[listKey] && trimmed.startsWith("- ")) {
-			const value = trimmed.slice(2).replace(/^["']|["']$/g, "")
+			const value = trimmed.slice(2).replace(/^["']|["']$/g, "").trim()
 			;(current[listKey] as string[]).push(value)
 		} else if (trimmed && trimmed.indexOf(":") >= 0 && !trimmed.startsWith("- ")) {
 			listKey = null

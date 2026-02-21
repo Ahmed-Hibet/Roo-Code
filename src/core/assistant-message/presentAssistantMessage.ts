@@ -45,6 +45,7 @@ import {
 	runPostHookOnly,
 	isMutatingTool,
 	loadIntentContext,
+	loadRecentTraceEntriesForIntent,
 	buildIntentContextXml,
 	setActiveIntentForTask,
 } from "../../hooks"
@@ -724,8 +725,9 @@ export async function presentAssistantMessage(cline: Task) {
 						)
 						break
 					}
+					const recentTrace = await loadRecentTraceEntriesForIntent(cline.cwd, context.id, 5)
 					setActiveIntentForTask(cline.taskId, context.id)
-					pushToolResult(buildIntentContextXml(context))
+					pushToolResult(buildIntentContextXml(context, recentTrace))
 					break
 				}
 				case "write_to_file": {

@@ -19,6 +19,7 @@ export {
 	getActiveIntentForTask,
 	clearActiveIntentForTask,
 	loadIntentContext,
+	loadRecentTraceEntriesForIntent,
 	buildIntentContextXml,
 	isMutatingTool,
 } from "./engine"
@@ -31,4 +32,5 @@ export type {
 	AgentTraceRecord,
 	ActiveIntentEntry,
 	IntentContext,
+	RecentTraceSummary,
 } from "./types"

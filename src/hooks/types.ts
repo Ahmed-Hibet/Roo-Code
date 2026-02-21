@@ -62,3 +62,10 @@ export interface IntentContext {
 	constraints: string[]
 	acceptance_criteria?: string[]
 }
+
+/** Summary of a recent agent trace entry for intent context (Phase 1 Context Loader). */
+export interface RecentTraceSummary {
+	relative_path: string
+	content_hash: string
+	timestamp: string
+}

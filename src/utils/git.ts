@@ -218,6 +218,21 @@ export async function checkGitInstalled(): Promise<boolean> {
 	}
 }
 
+/**
+ * Returns the current Git HEAD revision (SHA) for the given cwd, or undefined if not a repo.
+ * Used by the agent trace (Intent-Code Traceability) for vcs.revision_id.
+ */
+export async function getCurrentRevisionId(cwd: string): Promise<string | undefined> {
+	try {
+		const isRepo = await checkGitRepo(cwd)
+		if (!isRepo) return undefined
+		const { stdout } = await execAsync("git rev-parse HEAD", { cwd })
+		return stdout?.trim() || undefined
+	} catch {
+		return undefined
+	}
+}
+
 export async function searchCommits(query: string, cwd: string): Promise<GitCommit[]> {
 	try {
 		const isInstalled = await checkGitInstalled()

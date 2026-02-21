@@ -12,6 +12,7 @@ import type { PostHookContext } from "./types"
 import type { AgentTraceRecord } from "./types"
 import { ORCHESTRATION_DIR, AGENT_TRACE_FILE } from "./constants"
 import { getActiveIntentForTask } from "./preHook"
+import { getCurrentRevisionId } from "../utils/git"
 
 /**
  * Run the Post-Hook after a mutating tool (e.g. write_to_file) has completed.
@@ -56,9 +57,11 @@ export async function runPostHook(context: PostHookContext): Promise<void> {
 			contentHash = "sha256:(unable-to-read)"
 		}
 
+		const revisionId = await getCurrentRevisionId(cwd)
 		const record: AgentTraceRecord = {
 			id: uuidv7(),
 			timestamp: new Date().toISOString(),
+			...(revisionId && { vcs: { revision_id: revisionId } }),
 			files: [
 				{
 					relative_path: relPath,
