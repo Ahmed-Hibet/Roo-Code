@@ -21,6 +21,11 @@ export {
 	loadIntentContext,
 	loadRecentTraceEntriesForIntent,
 	buildIntentContextXml,
+	recordFileHashForTask,
+	clearFileHashesForTask,
+	computeContentHash,
+	appendLessonToClaudeMd,
+	CLAUDE_MD_FILENAME,
 	isMutatingTool,
 } from "./engine"
 
@@ -40,6 +45,7 @@ export type {
 	PreHookErrorCode,
 	PostHookContext,
 	AgentTraceRecord,
+	MutationClass,
 	ActiveIntentEntry,
 	IntentContext,
 	RecentTraceSummary,

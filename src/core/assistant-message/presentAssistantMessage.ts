@@ -49,6 +49,7 @@ import {
 	loadRecentTraceEntriesForIntent,
 	buildIntentContextXml,
 	setActiveIntentForTask,
+	appendLessonToClaudeMd,
 } from "../../hooks"
 
 /**
@@ -398,6 +399,8 @@ export async function presentAssistantMessage(cline: Task) {
 							(block.nativeArgs as { intent_id?: string } | undefined)?.intent_id ?? block.params?.intent_id
 						return `[${block.name} for '${id ?? "(intent_id)"}']`
 					}
+					case "record_lesson":
+						return `[${block.name}]`
 					default:
 						return `[${block.name}]`
 				}
@@ -743,6 +746,24 @@ export async function presentAssistantMessage(cline: Task) {
 					const recentTrace = await loadRecentTraceEntriesForIntent(cline.cwd, context.id, 5)
 					setActiveIntentForTask(cline.taskId, context.id)
 					pushToolResult(buildIntentContextXml(context, recentTrace))
+					break
+				}
+				case "record_lesson": {
+					const lesson =
+						(block.nativeArgs as { lesson?: string } | undefined)?.lesson ??
+						(block.params?.lesson as string | undefined)
+					if (!lesson?.trim()) {
+						pushToolResult(
+							formatResponse.toolError("record_lesson requires a non-empty lesson string."),
+						)
+						break
+					}
+					const result = await appendLessonToClaudeMd(cline.cwd, lesson.trim())
+					if (result.success) {
+						pushToolResult("Lesson recorded in CLAUDE.md.")
+					} else {
+						pushToolResult(formatResponse.toolError(`Failed to append lesson: ${result.error}`))
+					}
 					break
 				}
 				case "write_to_file": {

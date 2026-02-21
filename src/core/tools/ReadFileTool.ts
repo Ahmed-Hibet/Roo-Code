@@ -34,6 +34,7 @@ import {
 	ImageMemoryTracker,
 } from "./helpers/imageHelpers"
 import { BaseTool, ToolCallbacks } from "./BaseTool"
+import { recordFileHashForTask } from "../../hooks"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -219,6 +220,9 @@ export class ReadFileTool extends BaseTool<"read_file"> {
 					const result = this.processTextFile(fileContent, entry)
 
 					await task.fileContextTracker.trackFileContext(relPath, "read_tool" as RecordSource)
+
+					// Phase 4 (TRP1): Record file hash for optimistic locking when agent later calls write_to_file
+					recordFileHashForTask(task.taskId, relPath, fileContent)
 
 					updateFileResult(relPath, {
 						nativeContent: `File: ${relPath}\n${result}`,

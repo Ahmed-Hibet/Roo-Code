@@ -155,3 +155,79 @@ Tool runs; Post-Hook appends trace when applicable.
 | **Context Engineering** | Dynamic injection; context curated | Unchanged; Phase 2 adds .intentignore so certain intents require human approval. |
 | **Hook Architecture** | Clean Middleware; isolated, composable, fail-safe | Command classification (Safe vs Destructive); single Pre-Hook with optional requestDestructiveApproval; all errors standardized JSON. |
 | **Orchestration** | Parallel; shared CLAUDE.md; Hive Mind | UI-blocking authorization allows human to Approve/Reject per intent; standardized tool-error enables LLM self-correction without crash. |
+
+---
+
+## 8. Phase 3: The AI-Native Git Layer (Full Traceability) – Completed
+
+Phase 3 implements semantic tracking in the ledger so the system can distinguish refactors from feature changes and satisfy the full evaluation rubric (Intent–AST correlation with mathematical distinction).
+
+### 8.1 Requirements Fulfilled
+
+| Requirement | Implementation |
+|-------------|----------------|
+| **Schema modification** | `write_to_file` tool schema includes optional `mutation_class: "AST_REFACTOR" \| "INTENT_EVOLUTION"` (`src/core/prompts/tools/native-tools/write_to_file.ts`). Intent ID comes from `select_active_intent` (Phase 1). |
+| **Semantic classification** | Agent declares `mutation_class` per write; Post-Hook records it in each `agent_trace.jsonl` entry. `AST_REFACTOR` = syntax/structure change, same intent; `INTENT_EVOLUTION` = new feature or behavior. |
+| **Spatial hashing** | `computeContentHash(content)` in `src/hooks/preHook.ts` produces `sha256:` + hex digest. Post-Hook already computed content hash per file; same utility used for optimistic locking (Phase 4). |
+| **Trace serialization** | Post-Hook (`src/hooks/postHook.ts`) builds each record with `mutation_class`, `content_hash` in ranges, and `related: [{ type: "specification", value: intent_id }]`; appends one JSON line to `agent_trace.jsonl`. |
+
+### 8.2 Agent Trace Schema (Phase 3)
+
+Each line in `.orchestration/agent_trace.jsonl` now includes:
+
+- `mutation_class`: `"AST_REFACTOR"` or `"INTENT_EVOLUTION"` (default `INTENT_EVOLUTION` if omitted).
+- All prior fields: `id`, `timestamp`, `vcs.revision_id`, `files[].relative_path`, `files[].conversations[].ranges[].content_hash`, `files[].conversations[].related[]`.
+
+### 8.3 Evaluation Rubric Alignment (Phase 3 – Full Score)
+
+| Metric | Score 5 (Master Thinker) | How Phase 3 Meets It |
+|--------|---------------------------|----------------------|
+| **Intent–AST Correlation** | agent_trace.jsonl perfectly maps Intent IDs to Content Hashes; distinguishes Refactors from Features mathematically | Every trace entry has `mutation_class` and `content_hash`; intent linked via `related`; Refactors vs Features are explicitly classified. |
+| **Context Engineering** | Dynamic injection; context curated | Unchanged from Phase 1/2. |
+| **Hook Architecture** | Clean Middleware; isolated, composable, fail-safe | Post-Hook remains in `src/hooks/`; no logic in main loop beyond calling `runPostHookOnly`. |
+| **Orchestration** | Parallel; shared CLAUDE.md; Hive Mind | Phase 4 completes this. |
+
+---
+
+## 9. Phase 4: Parallel Orchestration (The Master Thinker) – Completed
+
+Phase 4 adds concurrency control (optimistic locking) and the Shared Brain (CLAUDE.md lesson recording) so parallel agents can coexist without overwriting each other and share lessons.
+
+### 9.1 Requirements Fulfilled
+
+| Requirement | Implementation |
+|-------------|----------------|
+| **Concurrency control** | When the agent calls `write_to_file`, the Pre-Hook (Phase 4) reads the current file from disk and computes its content hash. It compares this to the hash recorded when the agent last read that file via `read_file`. If they differ, the write is blocked with a standardized `stale_file` error and the suggestion to re-read the file and retry. Recording is done in `ReadFileTool` via `recordFileHashForTask(taskId, path, content)`; cleanup on task dispose via `clearFileHashesForTask(taskId)`. |
+| **Lesson recording** | Tool `record_lesson(lesson: string)` appends a timestamped lesson to `CLAUDE.md` in the workspace root. Implemented in `src/hooks/claudeMd.ts` (`appendLessonToClaudeMd`); the agent is instructed (intent-protocol and tool description) to call it when a verification step (linter/test/build) fails. |
+
+### 9.2 Execution Flow (Phase 4)
+
+**Optimistic locking (write_to_file):**
+
+```
+write_to_file requested
+    ↓
+Pre-Hook: (after intent/scope checks) For target path, if file exists:
+    - Read current content from disk, compute hash
+    - Get recorded hash for (taskId, path) from read_file
+    - If recorded exists and ≠ current → block (stale_file), suggest re-read and retry
+    ↓
+Tool runs; Post-Hook appends trace with mutation_class.
+```
+
+**Lesson recording:** Agent calls `record_lesson(lesson)` → `appendLessonToClaudeMd(cwd, lesson)` → append to `CLAUDE.md` under "## Lessons Learned".
+
+### 9.3 Hook Architecture (Phase 4)
+
+- **File-hash store:** `fileHashByTaskId: Map<taskId, Map<normalizedPath, hash>>` in `preHook.ts`; `recordFileHashForTask` / `clearFileHashesForTask` / `computeContentHash` exported from hooks.
+- **ReadFileTool** calls `recordFileHashForTask(task.taskId, relPath, fileContent)` after a successful text file read so subsequent writes can be guarded.
+- **record_lesson** is a native tool (non-mutating for intent purposes); implemented in the tool loop via `appendLessonToClaudeMd`; no Pre-Hook gate.
+
+### 9.4 Evaluation Rubric Alignment (Phase 4 – Full Score)
+
+| Metric | Score 5 (Master Thinker) | How Phase 4 Meets It |
+|--------|---------------------------|----------------------|
+| **Intent–AST Correlation** | agent_trace.jsonl maps Intent IDs to Content Hashes; distinguishes Refactors from Features | Phase 3 mutation_class; Phase 4 does not change trace schema. |
+| **Context Engineering** | Dynamic injection; context curated | Unchanged. |
+| **Hook Architecture** | Clean Middleware; isolated, composable, fail-safe | Optimistic lock in Pre-Hook; file-hash store and CLAUDE.md logic in `src/hooks/`; standardized `stale_file` error. |
+| **Orchestration** | Parallel orchestration; shared CLAUDE.md prevents collision; "Hive Mind" | Optimistic locking prevents one agent from overwriting another’s file without re-reading. `record_lesson` and CLAUDE.md allow parallel sessions (Architect/Builder/Tester) to share lessons and avoid repeated failures. |

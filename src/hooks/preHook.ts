@@ -1,11 +1,12 @@
 /**
  * Pre-Hook: runs before a tool is executed.
  * Enforces intent gatekeeper (valid active intent for mutating tools) and scope (path in owned_scope).
- * When select_active_intent is implemented, this will also handle loading intent context.
+ * Phase 4: Optimistic locking (stale file check) for write_to_file.
  */
 
 import * as path from "path"
 import * as fs from "fs/promises"
+import { createHash } from "crypto"
 
 import type { ToolUse } from "../shared/tools"
 import type { Task } from "../core/task/Task"
@@ -28,6 +29,50 @@ import {
 
 /** In-memory store of active intent per task (set when select_active_intent is called). */
 const activeIntentByTaskId = new Map<string, string>()
+
+/**
+ * Phase 4: Per-task file content hashes (recorded when read_file is used).
+ * Used for optimistic locking: block write_to_file if file on disk has changed since the agent read it.
+ */
+const fileHashByTaskId = new Map<string, Map<string, string>>()
+
+function normalizePathKey(relativePath: string): string {
+	return path.normalize(relativePath).replace(/\\/g, "/")
+}
+
+/**
+ * Phase 4: Compute SHA-256 hash of string content (spatial independence for traceability).
+ */
+export function computeContentHash(content: string): string {
+	return "sha256:" + createHash("sha256").update(content).digest("hex")
+}
+
+/**
+ * Phase 4: Record the content hash for a file when the agent reads it (e.g. via read_file).
+ * Call this from ReadFileTool after a successful read so write_to_file can enforce optimistic locking.
+ */
+export function recordFileHashForTask(taskId: string, relativePath: string, content: string): void {
+	let byPath = fileHashByTaskId.get(taskId)
+	if (!byPath) {
+		byPath = new Map()
+		fileHashByTaskId.set(taskId, byPath)
+	}
+	byPath.set(normalizePathKey(relativePath), computeContentHash(content))
+}
+
+/**
+ * Phase 4: Clear recorded file hashes for a task (call on task dispose to prevent unbounded growth).
+ */
+export function clearFileHashesForTask(taskId: string): void {
+	fileHashByTaskId.delete(taskId)
+}
+
+/**
+ * Get the recorded content hash for a file for a task, or undefined if not recorded.
+ */
+function getRecordedFileHash(taskId: string, relativePath: string): string | undefined {
+	return fileHashByTaskId.get(taskId)?.get(normalizePathKey(relativePath))
+}
 
 /**
  * Set the active intent for a task (called when select_active_intent is handled).
@@ -253,6 +298,34 @@ export async function runPreHook(
 						),
 					}
 				}
+			}
+		}
+	}
+
+	// Phase 4: Optimistic locking for write_to_file — block if file was modified since the agent read it
+	if (toolName === "write_to_file") {
+		const filePath = getPathForScopeCheck(block)
+		if (filePath) {
+			const absolutePath = path.join(cwd, filePath)
+			try {
+				const stat = await fs.stat(absolutePath)
+				if (stat.isFile()) {
+					const currentContent = await fs.readFile(absolutePath, "utf-8")
+					const currentHash = computeContentHash(currentContent)
+					const recordedHash = getRecordedFileHash(task.taskId, filePath)
+					if (recordedHash !== undefined && recordedHash !== currentHash) {
+						return {
+							allow: false,
+							errorContent: buildStandardizedToolError(
+								"stale_file",
+								`The file "${filePath}" was modified since you read it (e.g. by another agent or user). Your write would overwrite those changes.`,
+								"Re-read the file with read_file, then apply your changes and call write_to_file again.",
+							),
+						}
+					}
+				}
+			} catch {
+				// File may not exist (new file); allow write
 			}
 		}
 	}

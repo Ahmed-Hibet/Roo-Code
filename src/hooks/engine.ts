@@ -12,6 +12,7 @@ import { runPostHook } from "./postHook"
 import { MUTATING_TOOL_NAMES } from "./constants"
 
 export { runPreHook, runPostHook } from "./preHook"
+export { appendLessonToClaudeMd, CLAUDE_MD_FILENAME } from "./claudeMd"
 export {
 	setActiveIntentForTask,
 	getActiveIntentForTask,
@@ -20,6 +21,9 @@ export {
 	loadRecentTraceEntriesForIntent,
 	buildIntentContextXml,
 	buildStandardizedToolError,
+	recordFileHashForTask,
+	clearFileHashesForTask,
+	computeContentHash,
 } from "./preHook"
 
 /**

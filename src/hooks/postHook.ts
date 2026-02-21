@@ -9,7 +9,7 @@ import { createHash } from "crypto"
 import { v7 as uuidv7 } from "uuid"
 
 import type { PostHookContext } from "./types"
-import type { AgentTraceRecord } from "./types"
+import type { AgentTraceRecord, MutationClass } from "./types"
 import { ORCHESTRATION_DIR, AGENT_TRACE_FILE } from "./constants"
 import { getActiveIntentForTask } from "./preHook"
 import { getCurrentRevisionId } from "../utils/git"
@@ -58,10 +58,12 @@ export async function runPostHook(context: PostHookContext): Promise<void> {
 		}
 
 		const revisionId = await getCurrentRevisionId(cwd)
+		const mutationClass = (params.mutation_class as MutationClass | undefined) ?? "INTENT_EVOLUTION"
 		const record: AgentTraceRecord = {
 			id: uuidv7(),
 			timestamp: new Date().toISOString(),
 			...(revisionId && { vcs: { revision_id: revisionId } }),
+			mutation_class: mutationClass,
 			files: [
 				{
 					relative_path: relPath,

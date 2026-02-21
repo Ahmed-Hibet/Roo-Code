@@ -15,6 +15,9 @@ const PATH_PARAMETER_DESCRIPTION = `The path of the file to write to (relative t
 
 const CONTENT_PARAMETER_DESCRIPTION = `The content to write to the file. ALWAYS provide the COMPLETE intended content of the file, without any truncation or omissions. You MUST include ALL parts of the file, even if they haven't been modified. Do NOT include line numbers in the content.`
 
+/** Phase 3 (TRP1): Semantic classification for Intent–AST correlation. Use AST_REFACTOR when only changing structure/syntax within the same intent; use INTENT_EVOLUTION when adding new behavior or features. */
+const MUTATION_CLASS_DESCRIPTION = `Semantic classification of this write: "AST_REFACTOR" (syntax/structure change, same intent) or "INTENT_EVOLUTION" (new feature or behavior). Required when the workspace uses intent governance (.orchestration).`
+
 export default {
 	type: "function",
 	function: {
@@ -31,6 +34,11 @@ export default {
 				content: {
 					type: "string",
 					description: CONTENT_PARAMETER_DESCRIPTION,
+				},
+				mutation_class: {
+					type: "string",
+					enum: ["AST_REFACTOR", "INTENT_EVOLUTION"],
+					description: MUTATION_CLASS_DESCRIPTION,
 				},
 			},
 			required: ["path", "content"],

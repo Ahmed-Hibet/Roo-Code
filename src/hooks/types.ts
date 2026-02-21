@@ -24,6 +24,7 @@ export type PreHookErrorCode =
 	| "user_rejected"
 	| "intent_ignored"
 	| "intent_not_found"
+	| "stale_file"
 
 /**
  * Phase 2: Optional callbacks for the Pre-Hook. When .orchestration exists and
@@ -55,11 +56,16 @@ export interface PostHookContext {
 	writtenPath?: string
 }
 
+/** Phase 3 (TRP1): Semantic classification for Intent–AST correlation. */
+export type MutationClass = "AST_REFACTOR" | "INTENT_EVOLUTION"
+
 /** One Agent Trace record (one line in agent_trace.jsonl). */
 export interface AgentTraceRecord {
 	id: string
 	timestamp: string
 	vcs?: { revision_id: string }
+	/** Phase 3: Distinguishes refactors (same intent) from feature changes (intent evolution). */
+	mutation_class?: MutationClass
 	files: Array<{
 		relative_path: string
 		conversations: Array<{
