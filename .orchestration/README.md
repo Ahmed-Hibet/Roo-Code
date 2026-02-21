@@ -10,3 +10,5 @@ This directory contains **machine-managed** artifacts for the TRP1 Intent-Code T
 | `.intentignore` | (Phase 2) Optional. One intent ID per line; `#` comments allowed. Intents listed here require **Approve/Reject** in the UI before destructive actions (write, execute_command, etc.). |
 
 The sample files in this repo serve as reference and demo. For your own project, ensure `owned_scope` paths match your codebase.
+
+**Final Submission (point 5):** The repo must include these three artifacts: `agent_trace.jsonl`, `active_intents.yaml`, `intent_map.md`.

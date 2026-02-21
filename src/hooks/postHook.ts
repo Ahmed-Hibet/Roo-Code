@@ -12,6 +12,7 @@ import type { PostHookContext } from "./types"
 import type { AgentTraceRecord, MutationClass } from "./types"
 import { ORCHESTRATION_DIR, AGENT_TRACE_FILE } from "./constants"
 import { getActiveIntentForTask } from "./preHook"
+import { updateIntentMapForEvolution } from "./intentMap"
 import { getCurrentRevisionId } from "../utils/git"
 
 /**
@@ -69,6 +70,7 @@ export async function runPostHook(context: PostHookContext): Promise<void> {
 					relative_path: relPath,
 					conversations: [
 						{
+							url: task.taskId,
 							contributor: { entity_type: "AI", model_identifier: task.api?.getModel?.()?.id },
 							ranges: [{ start_line: startLine, end_line: endLine, content_hash: contentHash }],
 							related: activeIntentId ? [{ type: "specification", value: activeIntentId }] : undefined,
@@ -81,5 +83,10 @@ export async function runPostHook(context: PostHookContext): Promise<void> {
 		// Append one JSON line (JSONL format)
 		const line = JSON.stringify(record) + "\n"
 		await fs.appendFile(tracePath, line)
+
+		// PDF spec: intent_map.md is "Incrementally updated when INTENT_EVOLUTION occurs"
+		if (mutationClass === "INTENT_EVOLUTION" && activeIntentId) {
+			await updateIntentMapForEvolution(cwd, activeIntentId, relPath)
+		}
 	}
 }

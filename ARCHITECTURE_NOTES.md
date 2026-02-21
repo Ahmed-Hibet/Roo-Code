@@ -231,3 +231,29 @@ Tool runs; Post-Hook appends trace with mutation_class.
 | **Context Engineering** | Dynamic injection; context curated | Unchanged. |
 | **Hook Architecture** | Clean Middleware; isolated, composable, fail-safe | Optimistic lock in Pre-Hook; file-hash store and CLAUDE.md logic in `src/hooks/`; standardized `stale_file` error. |
 | **Orchestration** | Parallel orchestration; shared CLAUDE.md prevents collision; "Hive Mind" | Optimistic locking prevents one agent from overwriting another’s file without re-reading. `record_lesson` and CLAUDE.md allow parallel sessions (Architect/Builder/Tester) to share lessons and avoid repeated failures. |
+
+---
+
+## 10. Final Submission Checklist (TRP1 Point 5 & Evaluation Rubric)
+
+### 10.1 Final Submission – Point 5 (GitHub Repository Contents)
+
+Per the PDF, the repository must contain:
+
+| Requirement | Location | Status |
+|-------------|----------|--------|
+| **.orchestration/ artifacts** | | |
+| i. agent_trace.jsonl | `.orchestration/agent_trace.jsonl` | Append-only ledger with full schema: `id`, `timestamp`, `vcs.revision_id`, `mutation_class`, `files[].relative_path`, `files[].conversations[].url` (session_log_id), `content_hash`, `related` (intent_id). |
+| ii. active_intents.yaml | `.orchestration/active_intents.yaml` | Intent specification: id, name, status, owned_scope, constraints, acceptance_criteria. |
+| iii. intent_map.md | `.orchestration/intent_map.md` | Spatial map: intent ID → name → key paths. Incrementally updated when INTENT_EVOLUTION occurs (see `src/hooks/intentMap.ts`). |
+| **Source code** | | |
+| Forked extension with clean src/hooks/ | `src/hooks/` | index, types, constants, preHook, postHook, engine, claudeMd, intentMap; README documents structure and integration. |
+
+### 10.2 Evaluation Rubric (Score 5 – Master Thinker) – Explicit Mapping
+
+| Metric | Score 5 Criterion | Implementation Evidence |
+|--------|-------------------|-------------------------|
+| **Intent–AST Correlation** | agent_trace.jsonl perfectly maps Intent IDs to Content Hashes; distinguishes Refactors from Features mathematically | Every write_to_file trace includes `mutation_class` (AST_REFACTOR \| INTENT_EVOLUTION), `content_hash` per range, and `related: [{ type: "specification", value: intent_id }]`. Optional `vcs.revision_id` links to Git. |
+| **Context Engineering** | Dynamic injection of active_intents.yaml; agent cannot act without referencing the context DB; context is curated, not dumped | `select_active_intent` loads `active_intents.yaml` and recent entries from `agent_trace.jsonl`; returns `<intent_context>` (constraints, owned_scope, acceptance_criteria, recent_trace). Pre-Hook blocks mutating tools until active intent is set. |
+| **Hook Architecture** | Clean Middleware/Interceptor Pattern; hooks isolated, composable, fail-safe | Single interception in `presentAssistantMessage`; all logic in `src/hooks/` (preHook, postHook, engine, intentMap); Safe vs Destructive classification; standardized JSON errors for autonomous recovery. |
+| **Orchestration** | Parallel orchestration demonstrated; shared CLAUDE.md prevents collision; "Hive Mind" | Intent checkout per task; scope enforcement; optimistic locking (stale_file); `record_lesson` → CLAUDE.md; intent_map.md updated on INTENT_EVOLUTION. |
