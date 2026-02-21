@@ -18,6 +18,7 @@ import {
 	getObjectiveSection,
 	getSharedToolUseSection,
 	getToolUseGuidelinesSection,
+	getIntentProtocolSection,
 	getCapabilitiesSection,
 	getModesSection,
 	addCustomInstructions,
@@ -89,6 +90,8 @@ ${markdownFormattingSection()}
 ${getSharedToolUseSection()}${toolsCatalog}
 
 	${getToolUseGuidelinesSection()}
+
+${getIntentProtocolSection()}
 
 ${getCapabilitiesSection(cwd, shouldIncludeMcp ? mcpHub : undefined)}
 

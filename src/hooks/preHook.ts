@@ -9,8 +9,7 @@ import * as fs from "fs/promises"
 
 import type { ToolUse } from "../shared/tools"
 import type { Task } from "../core/task/Task"
-import type { PreHookResult } from "./types"
-import type { ActiveIntentEntry } from "./types"
+import type { PreHookResult, ActiveIntentEntry, IntentContext } from "./types"
 import { MUTATING_TOOL_NAMES, ORCHESTRATION_DIR, ACTIVE_INTENTS_FILE } from "./constants"
 
 /** In-memory store of active intent per task (set when select_active_intent is called). */
@@ -29,6 +28,14 @@ export function setActiveIntentForTask(taskId: string, intentId: string): void {
  */
 export function getActiveIntentForTask(taskId: string): string | undefined {
 	return activeIntentByTaskId.get(taskId)
+}
+
+/**
+ * Clear the active intent for a task. Must be called when the task is disposed
+ * to prevent unbounded growth of the map over long IDE sessions.
+ */
+export function clearActiveIntentForTask(taskId: string): void {
+	activeIntentByTaskId.delete(taskId)
 }
 
 /**
@@ -79,7 +86,13 @@ export async function runPreHook(
 		const filePath = (block as { nativeArgs?: { path?: string } }).nativeArgs?.path ?? block.params?.path
 		if (filePath) {
 			const intent = await loadIntentFromYaml(path.join(orchestrationPath, ACTIVE_INTENTS_FILE), activeIntentId)
-			if (intent && intent.owned_scope && intent.owned_scope.length > 0) {
+			if (!intent) {
+				return {
+					allow: false,
+					errorContent: `Active intent "${activeIntentId}" no longer exists in .orchestration/active_intents.yaml (file may have been modified or corrupted). Call select_active_intent with a valid intent_id from the current specification.`,
+				}
+			}
+			if (intent.owned_scope && intent.owned_scope.length > 0) {
 				const normalizedPath = path.normalize(filePath).replace(/\\/g, "/")
 				const inScope = intent.owned_scope.some((scope) => matchScope(scope, normalizedPath))
 				if (!inScope) {
@@ -113,29 +126,105 @@ async function loadIntentFromYaml(
 }
 
 /**
- * Minimal YAML-like parse for active_intents: id, owned_scope list.
+ * Load intent context for the handshake (select_active_intent). Returns type-safe IntentContext
+ * or null if .orchestration is missing or the intent_id is not found.
+ */
+export async function loadIntentContext(
+	task: Task,
+	intentId: string,
+): Promise<IntentContext | null> {
+	const orchestrationPath = path.join(task.cwd, ORCHESTRATION_DIR)
+	try {
+		await fs.access(orchestrationPath)
+	} catch {
+		return null
+	}
+	const entry = await loadIntentFromYaml(
+		path.join(orchestrationPath, ACTIVE_INTENTS_FILE),
+		intentId,
+	)
+	if (!entry) return null
+	return {
+		id: entry.id,
+		name: entry.name,
+		status: entry.status,
+		owned_scope: entry.owned_scope ?? [],
+		constraints: entry.constraints ?? [],
+		acceptance_criteria: entry.acceptance_criteria,
+	}
+}
+
+/**
+ * Build the <intent_context> XML block returned as the tool result for select_active_intent.
+ * Strict type-safe propagation: IntentContext -> string for the LLM.
+ */
+export function buildIntentContextXml(context: IntentContext): string {
+	const lines: string[] = [
+		"<intent_context>",
+		`<intent_id>${escapeXml(context.id)}</intent_id>`,
+	]
+	if (context.name) lines.push(`<name>${escapeXml(context.name)}</name>`)
+	if (context.owned_scope.length > 0) {
+		lines.push("<owned_scope>")
+		for (const s of context.owned_scope) lines.push(`  <path>${escapeXml(s)}</path>`)
+		lines.push("</owned_scope>")
+	}
+	if (context.constraints.length > 0) {
+		lines.push("<constraints>")
+		for (const c of context.constraints) lines.push(`  <constraint>${escapeXml(c)}</constraint>`)
+		lines.push("</constraints>")
+	}
+	if (context.acceptance_criteria?.length) {
+		lines.push("<acceptance_criteria>")
+		for (const a of context.acceptance_criteria) lines.push(`  <criterion>${escapeXml(a)}</criterion>`)
+		lines.push("</acceptance_criteria>")
+	}
+	lines.push("</intent_context>")
+	return lines.join("\n")
+}
+
+function escapeXml(s: string): string {
+	return s
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&apos;")
+}
+
+/**
+ * Minimal YAML-like parse for active_intents: id, name, owned_scope, constraints, acceptance_criteria.
  * Handles only the structure we need; full YAML would use a proper parser.
  */
 function parseActiveIntentsYaml(content: string): ActiveIntentEntry[] {
 	const entries: ActiveIntentEntry[] = []
 	const lines = content.split("\n")
 	let current: Partial<ActiveIntentEntry> = {}
-	let inOwnedScope = false
+	let listKey: "owned_scope" | "constraints" | "acceptance_criteria" | null = null
 
 	for (const line of lines) {
 		const trimmed = line.trim()
 		if (trimmed.startsWith("- id:")) {
 			if (current.id) entries.push(current as ActiveIntentEntry)
 			current = { id: trimmed.replace(/^- id:\s*/, "").replace(/^["']|["']$/g, "").trim() }
-			inOwnedScope = false
+			listKey = null
+		} else if (current.id && trimmed.startsWith("name:")) {
+			current.name = trimmed.replace(/^name:\s*/, "").replace(/^["']|["']$/g, "").trim()
+			listKey = null
 		} else if (current.id && trimmed.startsWith("owned_scope:")) {
-			inOwnedScope = true
+			listKey = "owned_scope"
 			current.owned_scope = []
-		} else if (inOwnedScope && trimmed.startsWith("- ")) {
+		} else if (current.id && trimmed.startsWith("constraints:")) {
+			listKey = "constraints"
+			current.constraints = []
+		} else if (current.id && trimmed.startsWith("acceptance_criteria:")) {
+			listKey = "acceptance_criteria"
+			current.acceptance_criteria = []
+		} else if (listKey && current[listKey] && trimmed.startsWith("- ")) {
 			const value = trimmed.slice(2).replace(/^["']|["']$/g, "")
-			if (current.owned_scope) current.owned_scope.push(value)
-		} else if (trimmed && !trimmed.startsWith("- ") && trimmed.indexOf(":") >= 0) {
-			inOwnedScope = false
+			;(current[listKey] as string[]).push(value)
+		} else if (trimmed && trimmed.indexOf(":") >= 0 && !trimmed.startsWith("- ")) {
+			listKey = null
 		}
 	}
 	if (current.id) entries.push(current as ActiveIntentEntry)

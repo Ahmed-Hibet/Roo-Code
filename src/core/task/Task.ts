@@ -90,6 +90,7 @@ import { calculateApiCostAnthropic, calculateApiCostOpenAI } from "../../shared/
 import { getWorkspacePath } from "../../utils/path"
 import { sanitizeToolUseId } from "../../utils/tool-id"
 import { getTaskDirectoryPath } from "../../utils/storage"
+import { clearActiveIntentForTask } from "../../hooks"
 
 // prompts
 import { formatResponse } from "../prompts/responses"
@@ -2287,6 +2288,13 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	public dispose(): void {
 		console.log(`[Task#dispose] disposing task ${this.taskId}.${this.instanceId}`)
+
+		// Clear hook state for this task to prevent unbounded map growth (Intent-Code Traceability)
+		try {
+			clearActiveIntentForTask(this.taskId)
+		} catch (error) {
+			console.error("Error clearing active intent for task:", error)
+		}
 
 		// Cancel any in-progress HTTP request
 		try {

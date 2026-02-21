@@ -44,6 +44,9 @@ import {
 	runPreHookOnly,
 	runPostHookOnly,
 	isMutatingTool,
+	loadIntentContext,
+	buildIntentContextXml,
+	setActiveIntentForTask,
 } from "../../hooks"
 
 /**
@@ -388,6 +391,11 @@ export async function presentAssistantMessage(cline: Task) {
 						return `[${block.name} for '${block.params.skill}'${block.params.args ? ` with args: ${block.params.args}` : ""}]`
 					case "generate_image":
 						return `[${block.name} for '${block.params.path}']`
+					case "select_active_intent": {
+						const id =
+							(block.nativeArgs as { intent_id?: string } | undefined)?.intent_id ?? block.params?.intent_id
+						return `[${block.name} for '${id ?? "(intent_id)"}']`
+					}
 					default:
 						return `[${block.name}]`
 				}
@@ -696,6 +704,30 @@ export async function presentAssistantMessage(cline: Task) {
 			}
 
 			switch (block.name) {
+				case "select_active_intent": {
+					// Handshake: load intent context, set active intent, return <intent_context> to the LLM
+					const intentId =
+						(block.nativeArgs as { intent_id?: string } | undefined)?.intent_id ??
+						(block.params?.intent_id as string | undefined)
+					if (!intentId?.trim()) {
+						pushToolResult(
+							formatResponse.toolError("select_active_intent requires a non-empty intent_id."),
+						)
+						break
+					}
+					const context = await loadIntentContext(cline, intentId.trim())
+					if (!context) {
+						pushToolResult(
+							formatResponse.toolError(
+								`Intent "${intentId}" not found in .orchestration/active_intents.yaml or .orchestration is missing. Use a valid intent_id from the active intents specification.`,
+							),
+						)
+						break
+					}
+					setActiveIntentForTask(cline.taskId, context.id)
+					pushToolResult(buildIntentContextXml(context))
+					break
+				}
 				case "write_to_file": {
 					cline.didWriteToFileSucceed = false
 					await checkpointSaveAndMark(cline)

@@ -11,7 +11,13 @@ import { runPostHook } from "./postHook"
 import { MUTATING_TOOL_NAMES } from "./constants"
 
 export { runPreHook, runPostHook } from "./preHook"
-export { setActiveIntentForTask, getActiveIntentForTask } from "./preHook"
+export {
+	setActiveIntentForTask,
+	getActiveIntentForTask,
+	clearActiveIntentForTask,
+	loadIntentContext,
+	buildIntentContextXml,
+} from "./preHook"
 
 /**
  * Check whether a tool name is mutating (requires Pre-Hook and may trigger Post-Hook).

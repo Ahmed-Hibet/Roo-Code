@@ -49,3 +49,16 @@ export interface ActiveIntentEntry {
 	constraints?: string[]
 	acceptance_criteria?: string[]
 }
+
+/**
+ * Type-safe intent context returned from the handshake (select_active_intent).
+ * Propagated into the prompt as <intent_context> and used by pre/post hooks.
+ */
+export interface IntentContext {
+	id: string
+	name?: string
+	status?: string
+	owned_scope: string[]
+	constraints: string[]
+	acceptance_criteria?: string[]
+}

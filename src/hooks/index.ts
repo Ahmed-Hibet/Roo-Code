@@ -17,9 +17,18 @@ export {
 	runPostHookOnly,
 	setActiveIntentForTask,
 	getActiveIntentForTask,
+	clearActiveIntentForTask,
+	loadIntentContext,
+	buildIntentContextXml,
 	isMutatingTool,
 } from "./engine"
 
 export { ORCHESTRATION_DIR, ACTIVE_INTENTS_FILE, AGENT_TRACE_FILE, INTENT_MAP_FILE, MUTATING_TOOL_NAMES } from "./constants"
 
-export type { PreHookResult, PostHookContext, AgentTraceRecord, ActiveIntentEntry } from "./types"
+export type {
+	PreHookResult,
+	PostHookContext,
+	AgentTraceRecord,
+	ActiveIntentEntry,
+	IntentContext,
+} from "./types"
